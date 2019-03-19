@@ -5,14 +5,14 @@
 open Llvm
 
 (* top ::= definition | external | expression | ';' *)
-let rec main_loop stream =
+let rec main_loop the_fpm the_execution_engine stream =
   match Stream.peek stream with
     | None -> ()
 
     (* Ignore semicolons *)
     | Some (Token.Kwd ';') ->
         Stream.junk stream;
-        main_loop stream
+        main_loop the_fpm the_execution_engine stream
 
     | Some token ->
         begin
@@ -29,11 +29,11 @@ let rec main_loop stream =
               (* evaluate a top-level expression into an anonymous function *)
               ignore(Parser.parse_toplevel stream)
               print_endline "parsed a top-level expression"
-              dump_value (Codegen.codegen_func e);
+              dump_value (Codegen.codegen_func the_fpm e);
           with Stream.Error s ->
               (* skip token for error recovery *)
               Stream.junk stream;
               print_endline s;
         end
         print_string "ready> "; flush stdout;
-        main_loop stream
+        main_loop the_fpm the_execution_engine stream
