@@ -87,3 +87,36 @@ and parse_bin_rhs expr_prec lhs stream =
         parse_bin_rhs expr_prec lhs stream
       end
   | _ -> lhs
+
+(* prototype
+ *  ::= id '(' id* ')' *)
+let parse_prototype =
+  let rec parse_args accumulator = parser
+    | [< 'Token.Ident id; e=parse_agrs (id :: accumulator) >] -> e
+    | [< >] -> accumulator
+  in
+
+  parser
+  | [< 'Token.Ident id;
+        'Token.Kwd '(' ?? "Error: expected '(' in prototype";
+        args = parse_args [];
+        'Token.Kwd ')' ?? "Error: expexted ')' in prototype" >] ->
+        (* Success *)
+        Ast.Prototype(id, Array.of_list(List.rev args))
+
+  | [< >] -> raise (Stream.Error "expected function name in prototype")
+
+(* definition ::= 'def' prototype expression *)
+let parse_definition = parser
+  | [< 'Token.Def; p=parse_prototype; e=parse_expr >] ->
+      Ast.Function(p, e)
+
+(* external ::= 'extern' prototype *)
+let parse_extern = parser
+  | [< 'Token.Extern; e=parse_prototype >] -> e
+
+(* toplevelexpr ::= expression *)
+let parse_toplevel = parser
+  | [<e=parse_expr >] ->
+      (* Make an anonymous proto *)
+      Ast.Function(Ast.Prototype("", [||], e))
