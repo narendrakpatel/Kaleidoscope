@@ -5,8 +5,10 @@
 open Llvm
 open Llvm_executionengine
 open Llvm_target
+open Llvm_scalar_opts
 
 let main () =
+  ignore (initialize_native_target ());
   (* Install standard binary operators
    * 1 is considered as lowest precedence *)
   Hashtbl.add Parser.binop_precedence '<' 10;
