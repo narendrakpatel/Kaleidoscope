@@ -105,6 +105,78 @@ let rec codegen_expr = function
         position_at_end merge_bb builder;
 
         phi
+  | Ast.For (id, start, end_, step, body) ->
+        (* Emit the start code first, without 'variable' in scope *)
+        let start_val = codegen_expr start in
+
+        (* make the new basic block for the loop header, inserting after
+         * current block *)
+         let preheader_bb = insertion_block builder in
+         let the_function = block_parent preheader_bb in
+         let loop_bb = append_block context "loop" the_function in
+
+         (* insert an explicit fall through from the current block to
+          * the loop_bb *)
+          ignore (build_br loop_bb builder)
+
+          (* start the insertion in loop_bb *)
+          position_at_end loop_bb builder;
+
+          (* start the phi node with an entry for start *)
+          let variable = build_phi [(start_val, preheader_bb)] id builder in
+
+          (* within the loop the variable is defined equal to the phi node
+           * if it shadows an existing variable, we have to restore it,
+           * so save it now *)
+          let old_val =
+            try Some (Hashtbl.find named_values id) with Not_found -> None
+          in
+          Hashtbl.add named_values id variable;
+
+          (* Emit the body of the loop. this, like any other expr, can
+           * change the current basic block. note that we ignore the value
+           * computed by the body, but don't allow an error *)
+          ignore (codegen_expr body)
+
+          (* Emit the step value *)
+          let step_val =
+            match step with
+            | Some step -> codegen_expr step
+
+            (* if not specified, use 1.0 *)
+            | None -> const_float double_type 1.0
+          in
+
+          let next_var = build_add variable step_val "nextvar" builder in
+
+          (* compute the end condition *)
+          let end_cond = codegen_expr end_ in
+
+          (* convert condition to a bool by comparing equal to 0.0 *)
+          let zero = const float_type double_type 0.0 in
+          let end_cond = build_fcmp Fcmp.One end_cond zero "loopcond" builder in
+
+          (* create the "after loop" block and insert it *)
+          let loop_end_bb = insertion_block builder in
+          let after_bb = append_block context "afterloop" the_function in
+
+          (* insert the conditional branch into the end of the loop_end_bb *)
+          ignore (build_cond_br end_cond loop_bb after_bb builder);
+
+          (* any new code will be inserted in after_bb *)
+          position_at_end after_bb builder;
+
+          (* add a new entry to the phi node for the backedge *)
+          add_incoming (next_var, loop_end_bb) variable;
+
+          (* restore the unshadowed variable *)
+          begin match old_val with
+          | Some old_val -> Hashtbl.add named_values id old_val
+          | None -> ()
+          end;
+
+          (* for expr always returns 0.0 *)
+          const_null double_type
 
 (* code generation for prototype
  * returns "Function*" instead of "Value*" *)

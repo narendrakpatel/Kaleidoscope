@@ -40,6 +40,8 @@ and lex_ident buffer = parser
       | "if" -> [< 'Token.If; stream >]
       | "then" -> [< 'Token.Then; stream >]
       | "else" -> [< 'Token.Else; stream >]
+      | "for" -> [< 'Token.For; stream >]
+      | "in" -> [< 'Token.In; stream >]
       | id -> [< 'Token.Ident id; stream >]
 
 and lex_number buffer = parser

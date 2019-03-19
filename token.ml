@@ -19,3 +19,4 @@ type token =
 
   (* control *)
   | If | Then | Else
+  | For | In
