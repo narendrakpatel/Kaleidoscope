@@ -53,3 +53,56 @@ let rec codegen_expr = function
         raise (Error "incorrect # arguments passed")
       let args = Array.map codegen_expr args in
       build_call callee args "calltmp" builder
+
+(* code generation for prototype
+ * returns "Function*" instead of "Value*" *)
+let codegen_proto = function
+  | Ast.Prototype (name, args) ->
+      (* make the function type: double(double...n times) *)
+      let doubles = Array.make (Array.length args) double_type in
+      let ft = function_type double_type doubles in
+      let f =
+        match lookup_function name the_module with
+        | None -> declare_function name ft the_module
+        | Some f ->
+            (* if 'f' does not have body, it is forward declaration *)
+            if block_begin f <> At_end f then
+              raise (Error "redefinition of function")
+
+            (* if 'f' took a different number of arguments, reject this*)
+            if element_type (type_of f) <> ft then
+              raise (Error "redefinition of function with different # args")
+            f
+      in
+
+      (* set names for all arguments *)
+      Array.iteri (fun i a ->
+        let n = args.(i) in
+        set_value_name n a;
+        (* TODO: check for conflicting argument names *)
+        Hashtbl.add named_values n a;
+      ) (params f)
+      f
+
+let codegen_func = function
+  | Ast.Function (proto, body) ->
+      Hashtbl.clear named_values;
+      let the_function = codegen_proto proto in
+      (* create a new basic block to start insertion into *)
+      let basic_block = append_block context "entry" the_function in
+      position_at_end basic_block builder
+
+      try
+        let ret_val = codegen_expr body in
+
+        (* finish the function *)
+        let _ = build_ret ret_value builder in
+
+        (* validate the generated code, check for consistency *)
+        Llvm_analysis.assert_valid_function the_function;
+
+        the_function
+      with e ->
+        (* TODO: check for previously defined forward declaration *)
+        delete_function the_function;
+        raise e

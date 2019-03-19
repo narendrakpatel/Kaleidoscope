@@ -2,6 +2,8 @@
  * Main driver code
  *===----------------------------------------------------------------------===*)
 
+open Llvm
+
 let main () =
   (* Install standard binary operators
    * 1 is considered as lowest precedence *)
@@ -16,6 +18,9 @@ let main () =
 
   (* run the main "interpreter loop" *)
   Toplevel.main_loop stream;
+
+  (* print out all the generated code *)
+  dump_module Codegen.the_module
 ;;
 
 main()
