@@ -16,3 +16,6 @@ type token =
 
   (* unknown *)
   | Kwd of char
+
+  (* control *)
+  | If | Then | Else

@@ -47,6 +47,16 @@ let rec parse_primary = parser
       in
       parse_ident id stream
 
+  (* ifexpr
+   *  ::= 'if' expr 'then' expr 'else' expr' *)
+  | [< 'Token.If;
+        c=parse_expr;
+        'Token.Then ?? "Error: expected 'then'";
+        t=parse_expr;
+        'Token.Else ?? "Error: expected 'else'";
+        e=parse_expr;] ->
+      Ast.If (c, t, e)
+
   | [< >] -> raise (Stream.Error "unkwown token when expecting an expr")
 
 (* expression

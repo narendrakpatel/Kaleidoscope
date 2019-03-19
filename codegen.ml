@@ -53,6 +53,58 @@ let rec codegen_expr = function
         raise (Error "incorrect # arguments passed")
       let args = Array.map codegen_expr args in
       build_call callee args "calltmp" builder
+  | Ast.If (c, t, e) ->
+        let c = codegen_expr c in
+
+        (* convery condition to a bool by comparing equal to 0.0 *)
+        let zero = const_float double_type 0.0 in
+        let cval = build_fcmp Fcmp.One c zero "ifc" builder in
+
+        (* grab the first block so that we might later add the conditional
+         * branch to it at the end of the function *)
+        let start_bb = insertion_block builder in
+        let the_function = block_parent start_bb in
+
+        (* Emit 'then' value *)
+        let then_bb = append_block context "then" the_function in
+        position_at_end then_bb builder;
+        let tval = codegen_expr t in
+
+        (* codegen of 'then' can change the current block, update then_bb
+         * for the phi. we create a new name because one is used for the
+         * phi node, and the other is used for conditional branch *)
+        let new_then_bb = insertion_block builder in
+
+        (* Emit 'else' value *)
+        let else_bb = append_block context "else" the_function in
+        position_at_end else_bb builder;
+        let eval = codegen_expr e in;
+
+        (* codegen of 'else' can change the current block, update else_bb
+         * for the phi *)
+        let new_else_bb = insertion_block builder in
+
+        (* Emit 'merge' block *)
+        let merge_bb = append_block context "merge" the_function in
+        position_at_end merge_bb builder;
+        let incoming = [(tval, new_then_bb); (eval, new_else_bb)] in
+        let phi = build_phi incoming "iftmp" builder in
+
+        (* return to the start block to add the conditional branch *)
+        position_at_end start_bb builder;
+        ignore (build_cond_br cval then_bb else_bb builder);
+
+        (* set an unconditional branch at the end of the 'then' block and
+         * the 'else' block to the 'merge' block *)
+        position_at_end new_then_bb builder;
+        ignore (build_br merge_bb builder);
+        position_at_end new_else_bb builder;
+        ignore (build_br merge_bb builder);
+
+        (* finally set the builder to the end of the merge block *)
+        position_at_end merge_bb builder;
+
+        phi
 
 (* code generation for prototype
  * returns "Function*" instead of "Value*" *)

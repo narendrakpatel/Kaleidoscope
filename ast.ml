@@ -16,6 +16,9 @@ type expr =
   (* variant for function calls *)
   | Call of string * expr array
 
+  (* variant for if/then/else *)
+  | If of expr * expr * expr
+
 (* This type represents the prototype for a function, which captures its name
  * and its arguments names (thus the number of arguments the function takes) *)
 type proto = Prototype of string * string array

@@ -37,6 +37,9 @@ and lex_ident buffer = parser
       match Buffer.contents buffer with
       | "def" -> [< 'Token.Def; stream >]
       | "extern" -> [< 'Token.Extern; stream >]
+      | "if" -> [< 'Token.If; stream >]
+      | "then" -> [< 'Token.Then; stream >]
+      | "else" -> [< 'Token.Else; stream >]
       | id -> [< 'Token.Ident id; stream >]
 
 and lex_number buffer = parser
