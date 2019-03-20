@@ -44,6 +44,7 @@ and lex_ident buffer = parser
       | "in" -> [< 'Token.In; stream >]
       | "binary" -> [< 'Token.Binary; stream >]
       | "unary" -> [< 'Token.Unary; stream >]
+      | "var" -> [< 'Token.Var; stream >]
       | id -> [< 'Token.Ident id; stream >]
 
 and lex_number buffer = parser

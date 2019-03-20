@@ -24,3 +24,6 @@ type token =
   (* operators *)
   | Binary
   | Unary
+
+  (* variable definition *)
+  | Var

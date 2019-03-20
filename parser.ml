@@ -11,7 +11,8 @@ let precendence c = try Hashtbl.find binop_precedence c with Not_found -> -1
 (* primary
  *  ::= identifier
  *  ::= numberexpr
- *  ::= parentexpr *)
+ *  ::= parentexpr
+ *  ::= varexpr *)
 let rec parse_primary = parser
   (* numberexpr ::= number *)
   | [< 'Token.Number n >] -> Ast.Number n
@@ -84,8 +85,32 @@ let rec parse_primary = parser
             raise (Stream.Error "Error: syntax error in for")
       end stream
 
+  (* varexpr
+   *  ::= 'var' identifier ('=' expression?
+   *            (',' identfier ('=' expression)?) *)
+  | [< 'Token.Var;
+        (* at least one variable name is required *)
+        'Token.Ident id ?? "Error: expected identifier after var";
+        init=parse_var_init;
+        var_names=parse_var_names [(id, init)];
+        (* at this point, we have to have 'in' *)
+        'Token.In ?? "Error: expected 'in' keyword after var";
+        body=parse_expr >] ->
+      Ast.Var (Array.of_list (List.rev var_names), body)
+
   | [< >] -> raise (Stream.Error "unkwown token when expecting an expr")
 
+and parse_var_init = parser
+  (* read in the optional initializer *)
+  | [< 'Token.Kwd '='; e=parse_expr >] -> Some e
+  | [< >] -> None
+
+and parse_var_names accumulator = parser
+  | [< 'Token.Kwd ',';
+        'Token.Ident id ?? "expected identifier list after var";
+        init=parse_var_init;
+        e=parse_var_names ((id, init) :: accumulator) >] -> e
+  | [< >] -> accumulator
 (* expression
  *  ::= primary binoprhs *)
 and parse_expr = parser

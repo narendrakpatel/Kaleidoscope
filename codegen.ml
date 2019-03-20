@@ -84,6 +84,47 @@ let rec codegen_expr = function
         | None -> raise (Error "unary operator not found")
       in
       build_call callee [|operand|] "unop" builder
+  | Ast.Var (var_names, body)
+      let old_bindings = ref [] in
+      let the_function = block_parent (insertion_block builder) in
+
+      (* register all variables and emit their initializer *)
+      Array.iter (fun (var_names, init) ->
+        (* emit the initializer before adding the variable to scope, this
+         * prevents the initializer from referencing the variable itself *)
+        let init_val =
+          match init with
+          | Some init -> codegen_expr init
+          (* if not specified, use 0.0 *)
+          | None -> const_float double_type 0.0
+        in
+
+        let alloca = create_entry_block_alloca the_function var_name in
+        ignore (build_store init_value alloca builder);
+
+        (* remember the old variable binding so that we can restore the
+         * binding when we unrecurse *)
+        begin
+          try
+            let old_value = Hashtbl.find named_values var_name in
+            old_bindings := (var_name, old_value) :: !old_bindings;
+          with Not_found -> ()
+        end;
+
+        (* remember this bindings *)
+        Hashtbl.add named_values var_name alloca;
+      ) var_names;
+
+      (* codegen the body, now that all vars are in scope *)
+      let body_val = codegen_expr body in
+
+      (* pop all our variables from scope *)
+      List.iter (fun (var_name, old_value) ->
+        Hashtbl.add named_values var_name old_value
+      ) !old_bindings;
+
+      (* return the body computation *)
+      body_val;
   | Ast.Call (callee, args) ->
       (* lookup the name in the module name *)
       let callee =
