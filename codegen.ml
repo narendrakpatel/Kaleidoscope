@@ -19,33 +19,62 @@ let builder = builder context
 let named_values:(string, llvalue) Hashtbl.t = Hashtbl.create 10
 let double_type = double_type context
 
+(* helper function to ensure that allocas are created in the entry block of the
+ * function *)
+let create_entry_block_alloca the_function var_name =
+  let builder = builder_at (instr_begin (entry_block the_function)) in
+  build_alloca double_type var_name builder
+
 (* code generation for expressions *)
 let rec codegen_expr = function
   | Ast.Number n -> const_float double_type n
   | Ast.Variable name ->
-      (try Hashtbl.find named_values name with
-        | Not_found -> raise (Error "unkown variable name"))
+      let v = try Hashtbl.find named_values name with
+        | Not_found -> raise (Error "unkown variable name")
+      in
+      (* load the value *)
+      build_load v name builder
   | Ast.Binary (op, lhs, rhs) ->
-      let lhs_val = codegen_expr lhs in
-      let rhs_val = codegen_expr rhs in
-      begin
-        match op with
-        | '+' -> build_fadd lhs_val rhs_val "addtmp" builder
-        | '-' -> build_fsub lhs_val rhs_val "subtmp" builder
-        | '*' -> build_fmul lhs_val rhs_val "multmp" builder
-        | '<' ->
-            (* Convert bool 0/1 to double 0.0/1.0 *)
-            let i = build_fcmp Fcmp.Utl lhs_val rhs_val "cmptmp" builder in
-            build_uitofp i double_type "booltmp" builder
-        | _ ->
-            let callee = "binary" ^ (String.make 1 op) in
-            let callee =
-              match lookup_function callee the_module with
-              | Some callee -> callee
-              | None -> raise (Error "binary operator not found")
-            in
-            build_call callee [|lhs_val; rhs_val|] "binop" builder
-      end
+      begin match op with
+      | '=' ->
+        (* special case '=' as we don't want to emit LHS as an expression *)
+        let name =
+          match lhs with
+          | Ast.Variable name -> name
+          | _ -> raise (Error "destination of '=' must be a variable")
+        in
+
+        (* codegen the rhs *)
+        let val_ = codegen_expr rhs in
+
+        (* lookup the name *)
+        let variable = try Hashtbl.find named_values name with
+        | Not_found -> raise (Error "unknown variable name")
+        in
+        ignore (build_store val_ variable builder);
+        val_
+      | _ ->
+        let lhs_val = codegen_expr lhs in
+        let rhs_val = codegen_expr rhs in
+        begin
+          match op with
+          | '+' -> build_fadd lhs_val rhs_val "addtmp" builder
+          | '-' -> build_fsub lhs_val rhs_val "subtmp" builder
+          | '*' -> build_fmul lhs_val rhs_val "multmp" builder
+          | '<' ->
+              (* Convert bool 0/1 to double 0.0/1.0 *)
+              let i = build_fcmp Fcmp.Utl lhs_val rhs_val "cmptmp" builder in
+              build_uitofp i double_type "booltmp" builder
+          | _ ->
+              let callee = "binary" ^ (String.make 1 op) in
+              let callee =
+                match lookup_function callee the_module with
+                | Some callee -> callee
+                | None -> raise (Error "binary operator not found")
+              in
+              build_call callee [|lhs_val; rhs_val|] "binop" builder
+          end
+        end
   | Ast.Unary (op, operand) ->
       let operand = codegen_expr operand in
       let callee = "unary" ^ (String.make 1 op) in
@@ -122,13 +151,19 @@ let rec codegen_expr = function
 
         phi
   | Ast.For (id, start, end_, step, body) ->
+        let the_function = block_parent (insertion_block builder) in
+
+        (* create an alloca for the variable in the entry block *)
+        let alloca = create_entry_block_alloca the_function id in
+
         (* Emit the start code first, without 'variable' in scope *)
         let start_val = codegen_expr start in
 
+        (* store the value into the alloca *)
+        ignore (build_store start_val alloca builder)
+
         (* make the new basic block for the loop header, inserting after
          * current block *)
-         let preheader_bb = insertion_block builder in
-         let the_function = block_parent preheader_bb in
          let loop_bb = append_block context "loop" the_function in
 
          (* insert an explicit fall through from the current block to
@@ -137,9 +172,6 @@ let rec codegen_expr = function
 
           (* start the insertion in loop_bb *)
           position_at_end loop_bb builder;
-
-          (* start the phi node with an entry for start *)
-          let variable = build_phi [(start_val, preheader_bb)] id builder in
 
           (* within the loop the variable is defined equal to the phi node
            * if it shadows an existing variable, we have to restore it,
@@ -163,17 +195,20 @@ let rec codegen_expr = function
             | None -> const_float double_type 1.0
           in
 
-          let next_var = build_add variable step_val "nextvar" builder in
-
           (* compute the end condition *)
           let end_cond = codegen_expr end_ in
+
+          (* reload, increment, and restore the alloca. this handles the case
+           * where the body of the loop mutates the variable *)
+          let cur_var = build_load alloca id builder in
+          let next_var = build_add cur_var step_val "nextvar" builder in
+          ignore (build_store next_var alloca builder)
 
           (* convert condition to a bool by comparing equal to 0.0 *)
           let zero = const float_type double_type 0.0 in
           let end_cond = build_fcmp Fcmp.One end_cond zero "loopcond" builder in
 
           (* create the "after loop" block and insert it *)
-          let loop_end_bb = insertion_block builder in
           let after_bb = append_block context "afterloop" the_function in
 
           (* insert the conditional branch into the end of the loop_end_bb *)
@@ -181,9 +216,6 @@ let rec codegen_expr = function
 
           (* any new code will be inserted in after_bb *)
           position_at_end after_bb builder;
-
-          (* add a new entry to the phi node for the backedge *)
-          add_incoming (next_var, loop_end_bb) variable;
 
           (* restore the unshadowed variable *)
           begin match old_val with
@@ -224,6 +256,26 @@ let codegen_proto = function
       ) (params f)
       f
 
+(* create an alloca for each argument and register the argument in the
+ * symbol table so that references to it will succeed *)
+let create_argument_allocas the_function proto =
+  let args = match proto with
+    | Ast.Prototype (_, args) -> args
+    | Ast.BinOpPrototype (_, args, _) -> args
+  in
+  Array.iteri (fun i ai ->
+    let var_name = args.(i) in
+
+    (* create an alloca for this variable *)
+    let alloca = create_entry_block_alloca the_function var_name in
+
+    (* store the initial value into the alloca *)
+    ignore(build_store ai alloca builder);
+
+    (* add arguments to variable symbol table *)
+    Hashtbl.add named_values var_name alloca;
+  ) (params the_function)
+
 let codegen_func the_fpm = function
   | Ast.Function (proto, body) ->
       Hashtbl.clear named_values;
@@ -242,6 +294,10 @@ let codegen_func the_fpm = function
       position_at_end basic_block builder
 
       try
+
+        (* add all arguments to the symbol table and create their allocas *)
+        create_argument_allocas the_function proto;
+
         let ret_val = codegen_expr body in
 
         (* finish the function *)
