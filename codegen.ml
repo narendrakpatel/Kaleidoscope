@@ -46,6 +46,15 @@ let rec codegen_expr = function
             in
             build_call callee [|lhs_val; rhs_val|] "binop" builder
       end
+  | Ast.Unary (op, operand) ->
+      let operand = codegen_expr operand in
+      let callee = "unary" ^ (String.make 1 op) in
+      let callee =
+        match lookup_function callee the_module with
+        | Some callee -> callee
+        | None -> raise (Error "unary operator not found")
+      in
+      build_call callee [|operand|] "unop" builder
   | Ast.Call (callee, args) ->
       (* lookup the name in the module name *)
       let callee =

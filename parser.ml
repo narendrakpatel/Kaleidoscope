@@ -162,7 +162,10 @@ let parse_prototype =
       if Array.length args != kind
       then raise (Stream.Error "Error: invalid number of operands for operator")
       else
-        Ast.BinOpPrototype (name, args, binary_precedence)
+        if kind == 1 then
+          Ast.Prototype (name, args)
+        else
+          Ast.BinOpPrototype (name, args, binary_precedence)
 
   | [< >] -> raise (Stream.Error "expected function name in prototype")
 

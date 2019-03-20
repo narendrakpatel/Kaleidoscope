@@ -23,3 +23,4 @@ type token =
 
   (* operators *)
   | Binary
+  | Unary

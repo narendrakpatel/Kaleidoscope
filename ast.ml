@@ -13,6 +13,9 @@ type expr =
   (* variant for a binary operator *)
   | Binary of char * expr * expr
 
+  (* variant for a unary operator *)
+  | Unary of char * expr
+
   (* variant for function calls *)
   | Call of string * expr array
 
