@@ -37,7 +37,14 @@ let rec codegen_expr = function
             (* Convert bool 0/1 to double 0.0/1.0 *)
             let i = build_fcmp Fcmp.Utl lhs_val rhs_val "cmptmp" builder in
             build_uitofp i double_type "booltmp" builder
-        | _ -> raise (Error "invalid binary operator")
+        | _ ->
+            let callee = "binary" ^ (String.make 1 op) in
+            let callee =
+              match lookup_function callee the_module with
+              | Some callee -> callee
+              | None -> raise (Error "binary operator not found")
+            in
+            build_call callee [|lhs_val; rhs_val|] "binop" builder
       end
   | Ast.Call (callee, args) ->
       (* lookup the name in the module name *)
@@ -212,6 +219,15 @@ let codegen_func the_fpm = function
   | Ast.Function (proto, body) ->
       Hashtbl.clear named_values;
       let the_function = codegen_proto proto in
+
+      (* if this is an operator, install it *)
+      begin match proto with
+      | Ast.BinOpPrototype (name, args, prec) ->
+          let op = name.[String.length name - 1] in
+          Hashtbl.add Parser.binop_precedence op prec;
+      | _ -> ()
+      end;
+
       (* create a new basic block to start insertion into *)
       let basic_block = append_block context "entry" the_function in
       position_at_end basic_block builder

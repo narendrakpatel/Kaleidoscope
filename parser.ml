@@ -126,11 +126,19 @@ and parse_bin_rhs expr_prec lhs stream =
   | _ -> lhs
 
 (* prototype
- *  ::= id '(' id* ')' *)
+ *  ::= id '(' id* ')'
+ *  ::= binary LETTER number? (id, id) *)
 let parse_prototype =
   let rec parse_args accumulator = parser
     | [< 'Token.Ident id; e=parse_agrs (id :: accumulator) >] -> e
     | [< >] -> accumulator
+  in
+  let parse_operator = parser
+    | [< 'Token.Binary >] -> "binary", 2
+  in
+  let parse_binary_precedence = parser
+    | [< 'Token.Number n >] -> int_of_float n
+    | [< >] -> 30
   in
 
   parser
@@ -140,6 +148,21 @@ let parse_prototype =
         'Token.Kwd ')' ?? "Error: expexted ')' in prototype" >] ->
         (* Success *)
         Ast.Prototype(id, Array.of_list(List.rev args))
+  | [< (prefix, kind)=parse_operator;
+        'Token.Kwd op ?? "Error: expected an operator";
+        (* read precedence if present *)
+        binary_precedence=parse_binary_precedence;
+        'Token.Kwd '(' ?? "Error: expected '(' in prototype";
+        args=parse_args [];
+        'Token.Kwd ')' ?? "Error: expected ')' in prototype" >] ->
+      let name = prefix ^ (String.make 1 op) in
+      let args = Array.of_list (List.rev args) in
+
+      (* verify number of arguments for operator *)
+      if Array.length args != kind
+      then raise (Stream.Error "Error: invalid number of operands for operator")
+      else
+        Ast.BinOpPrototype (name, args, binary_precedence)
 
   | [< >] -> raise (Stream.Error "expected function name in prototype")
 
